@@ -2,8 +2,26 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 
-const DB_PATH = path.join(__dirname, '..', 'secureprint.db');
+let DB_PATH = path.join(__dirname, '..', 'secureprint.db');
+
+// Vercel Serverless environment workaround:
+// Copy the SQLite database to the writable /tmp directory if running in production/Vercel.
+if (process.env.NODE_ENV === 'production' || process.env.VERCEL) {
+  const fs = require('fs');
+  const tempDbPath = path.join('/tmp', 'secureprint.db');
+  try {
+    if (!fs.existsSync(tempDbPath)) {
+      console.log(`[Vercel DB] Copying baseline database to writable location: ${tempDbPath}`);
+      fs.copyFileSync(DB_PATH, tempDbPath);
+    }
+    DB_PATH = tempDbPath;
+  } catch (err) {
+    console.error("[Vercel DB] Failed to copy database to /tmp, falling back to read-only:", err);
+  }
+}
+
 const db = new Database(DB_PATH);
+
 
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
