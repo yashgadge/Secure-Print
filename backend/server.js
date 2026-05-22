@@ -22,7 +22,6 @@ try {
 }
 
 const express = require('express');
-const session = require('express-session');
 const path = require('path');
 const multer = require('multer');
 const fs = require('fs');
@@ -48,12 +47,74 @@ const UPLOADS_BASE = isProduction ? '/tmp/uploads' : path.join(__dirname, '..', 
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(session({
-  secret: 'secureprint-ledger-secret-2024',
-  resave: false,
-  saveUninitialized: false,
-  cookie: { maxAge: 3600000 }
-}));
+// Custom stateless cookie-based session middleware to support Vercel serverless deployment
+app.use((req, res, next) => {
+  const cookieName = 'session_token';
+  
+  const parseCookies = (cookieHeader) => {
+    const list = {};
+    if (!cookieHeader) return list;
+    cookieHeader.split(';').forEach(cookie => {
+      const parts = cookie.split('=');
+      const name = parts.shift().trim();
+      const val = parts.join('=');
+      list[name] = decodeURIComponent(val);
+    });
+    return list;
+  };
+
+  const cookies = parseCookies(req.headers.cookie);
+  const sessionCookie = cookies[cookieName];
+  
+  let sessionData = {};
+  if (sessionCookie) {
+    try {
+      const json = Buffer.from(sessionCookie, 'base64').toString('utf8');
+      sessionData = JSON.parse(json);
+    } catch (err) {
+      console.error("[Session] Failed to parse session cookie:", err);
+    }
+  }
+
+  req.session = sessionData;
+
+  req.session.destroy = (cb) => {
+    req.session = {};
+    res.clearCookie(cookieName, { path: '/' });
+    if (cb) cb();
+  };
+
+  const originalWriteHead = res.writeHead;
+  const originalEnd = res.end;
+  let headersSent = false;
+
+  const saveSession = () => {
+    if (headersSent) return;
+    headersSent = true;
+    
+    if (req.session && Object.keys(req.session).length > 0) {
+      try {
+        const jsonStr = JSON.stringify(req.session);
+        const cookieVal = Buffer.from(jsonStr).toString('base64');
+        res.cookie(cookieName, cookieVal, { path: '/', httpOnly: true, maxAge: 3600000 });
+      } catch (err) {
+        console.error("[Session] Failed to serialize session:", err);
+      }
+    }
+  };
+
+  res.writeHead = function(...args) {
+    saveSession();
+    return originalWriteHead.apply(this, args);
+  };
+
+  res.end = function(...args) {
+    saveSession();
+    return originalEnd.apply(this, args);
+  };
+
+  next();
+});
 
 // Serve static files
 app.use(express.static(path.join(__dirname, '..', 'frontend')));
