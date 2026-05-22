@@ -2,7 +2,8 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 
-let DB_PATH = path.join(__dirname, '..', 'secureprint.db');
+let DB_PATH = path.join(process.cwd(), 'secureprint.db');
+let db;
 
 // Vercel Serverless environment workaround:
 // Copy the SQLite database to the writable /tmp directory if running in production/Vercel.
@@ -10,17 +11,38 @@ if (process.env.NODE_ENV === 'production' || process.env.VERCEL) {
   const fs = require('fs');
   const tempDbPath = path.join('/tmp', 'secureprint.db');
   try {
-    if (!fs.existsSync(tempDbPath)) {
-      console.log(`[Vercel DB] Copying baseline database to writable location: ${tempDbPath}`);
-      fs.copyFileSync(DB_PATH, tempDbPath);
+    let sourceDbPath = DB_PATH;
+    if (!fs.existsSync(sourceDbPath)) {
+      sourceDbPath = path.join(__dirname, 'secureprint.db');
     }
-    DB_PATH = tempDbPath;
+    if (!fs.existsSync(sourceDbPath)) {
+      sourceDbPath = path.join(__dirname, '..', 'secureprint.db');
+    }
+    
+    if (fs.existsSync(sourceDbPath)) {
+      if (!fs.existsSync(tempDbPath)) {
+        console.log(`[Vercel DB] Copying baseline database from ${sourceDbPath} to writable location: ${tempDbPath}`);
+        fs.copyFileSync(sourceDbPath, tempDbPath);
+      }
+      DB_PATH = tempDbPath;
+    } else {
+      console.warn(`[Vercel DB] Baseline database not found at any path! Falling back to in-memory.`);
+      DB_PATH = ':memory:';
+    }
   } catch (err) {
-    console.error("[Vercel DB] Failed to copy database to /tmp, falling back to read-only:", err);
+    console.error("[Vercel DB] Failed to copy database to /tmp, falling back to in-memory:", err);
+    DB_PATH = ':memory:';
   }
 }
 
-const db = new Database(DB_PATH);
+try {
+  console.log(`Connecting to database: ${DB_PATH}`);
+  db = new Database(DB_PATH);
+} catch (e) {
+  console.error("Failed to initialize database, falling back to in-memory database to prevent crash:", e);
+  db = new Database(':memory:');
+}
+
 
 
 db.pragma('journal_mode = WAL');

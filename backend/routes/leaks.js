@@ -7,7 +7,10 @@ const { recoverForensicMarkers } = require('../pdf_forensics');
 const requireRole = require('../middleware/requireRole');
 const router = express.Router();
 
-const LEAKS_DIR = path.join(__dirname, '..', '..', 'uploads', 'leaks');
+const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL;
+const UPLOADS_BASE = isProduction ? '/tmp/uploads' : path.join(process.cwd(), 'uploads');
+const LEAKS_DIR = path.join(UPLOADS_BASE, 'leaks');
+
 
 // Submit leak case (public)
 router.post('/submit', (req, res) => {
@@ -47,7 +50,7 @@ router.post('/:id/scan', async (req, res) => {
   const lc = db.prepare('SELECT * FROM leak_cases WHERE id = ?').get(req.params.id);
   if (!lc) return res.status(404).json({ error: 'Case not found' });
 
-  const filePath = path.join(__dirname, '..', '..', 'uploads', lc.file_path);
+  const filePath = path.join(UPLOADS_BASE, lc.file_path);
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Leak file not found on disk' });
 
   const isAdmin = req.session && (req.session.role === 'admin' || req.session.role === 'superadmin');

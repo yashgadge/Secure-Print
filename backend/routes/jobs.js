@@ -7,7 +7,10 @@ const { embedForensicMarkers, generateForensicId } = require('../pdf_forensics')
 const requireRole = require('../middleware/requireRole');
 const router = express.Router();
 
-const GENERATED_DIR = path.join(__dirname, '..', '..', 'uploads', 'generated');
+const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL;
+const UPLOADS_BASE = isProduction ? '/tmp/uploads' : path.join(process.cwd(), 'uploads');
+const GENERATED_DIR = path.join(UPLOADS_BASE, 'generated');
+
 
 // Get all jobs
 router.get('/', requireRole('admin', 'superadmin', 'operator'), (req, res) => {
@@ -58,7 +61,7 @@ router.post('/generate', requireRole('admin', 'superadmin'), async (req, res) =>
   const center = db.prepare('SELECT * FROM print_centers WHERE id = ?').get(center_id);
   const operator = db.prepare('SELECT * FROM operator_users WHERE id = ?').get(operator_id);
 
-  const sourcePath = path.join(__dirname, '..', '..', 'uploads', 'original', master_file);
+  const sourcePath = path.join(UPLOADS_BASE, 'original', master_file);
   const jobDir = path.join(GENERATED_DIR, String(jobId));
   if (!fs.existsSync(jobDir)) fs.mkdirSync(jobDir, { recursive: true });
 
@@ -281,7 +284,7 @@ router.get('/:jobId/verify/:forensicId', requireRole('admin', 'superadmin'), asy
   const forensicCopy = db.prepare('SELECT * FROM forensic_copies WHERE copy_id = ?').get(copy.id);
   if (!forensicCopy) return res.status(404).json({ error: 'Forensic record not found' });
 
-  const filePath = path.join(__dirname, '..', '..', 'uploads', copy.file_path);
+  const filePath = path.join(UPLOADS_BASE, copy.file_path);
   const { recoverForensicMarkers } = require('../pdf_forensics');
   const recovery = await recoverForensicMarkers(filePath, db);
 
