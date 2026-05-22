@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SecurePrint Ledger</title>
+<style>
+  :root {
+    --sidebar-w: 220px;
+    --bg: #f4f6f9;
+    --sidebar-bg: #0f1623;
+    --sidebar-hover: #1a2540;
+    --accent: #00b4d8;
+    --accent2: #0077b6;
+    --text: #1e293b;
+    --muted: #64748b;
+    --card: #ffffff;
+    --border: #e2e8f0;
+    --danger: #ef4444;
+    --success: #22c55e;
+    --warning: #f59e0b;
+    --info: #3b82f6;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); display: flex; min-height: 100vh; }
+
+  /* SIDEBAR */
+  #sidebar {
+    width: var(--sidebar-w); min-height: 100vh; background: var(--sidebar-bg);
+    display: flex; flex-direction: column; position: fixed; top: 0; left: 0; z-index: 100;
+    transition: transform 0.2s;
+  }
+  #sidebar.hidden { transform: translateX(-100%); }
+  .sidebar-logo { padding: 20px 16px 12px; border-bottom: 1px solid #1e2d45; }
+  .sidebar-logo .brand { color: var(--accent); font-size: 15px; font-weight: 700; letter-spacing: 0.5px; }
+  .sidebar-logo .sub { color: #4a6080; font-size: 10px; margin-top: 2px; }
+  .sidebar-user { padding: 10px 16px; border-bottom: 1px solid #1e2d45; }
+  .sidebar-user .role-badge { background: #1a2540; color: var(--accent); font-size: 10px; padding: 2px 8px; border-radius: 10px; display: inline-block; }
+  .sidebar-user .uname { color: #94a3b8; font-size: 12px; margin-top: 4px; }
+  .wallet-panel {
+    margin-top: 10px;
+    padding: 8px;
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(8px);
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .btn-connect-wallet {
+    width: 100%;
+    background: linear-gradient(135deg, #00b4d8 0%, #0077b6 100%);
+    color: white;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 600;
+    transition: all 0.2s;
+    text-align: center;
+  }
+  .btn-connect-wallet:hover {
+    opacity: 0.95;
+    box-shadow: 0 0 10px rgba(0, 180, 216, 0.4);
+  }
+  .wallet-address {
+    color: #e2e8f0;
+    font-size: 11px;
+    font-family: monospace;
+    word-break: break-all;
+    display: none;
+    text-align: center;
+    background: rgba(0, 180, 216, 0.12);
+    border: 1px solid rgba(0, 180, 216, 0.25);
+    padding: 4px;
+    border-radius: 4px;
+  }
+  .wallet-balance {
+    color: #10b981;
+    font-size: 11px;
+    font-weight: 600;
+    text-align: center;
+    background: rgba(16, 185, 129, 0.12);
+    border: 1px solid rgba(16, 185, 129, 0.25);
+    padding: 4px;
+    border-radius: 4px;
+    display: none;
+    font-family: Inter, sans-serif;
+  }
+  .sidebar-nav { flex: 1; overflow-y: auto; padding: 8px 0; }
+  .nav-group { padding: 8px 16px 4px; color: #3a5070; font-size: 10px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; }
+  .nav-item { display: flex; align-items: center; gap: 10px; padding: 9px 16px; color: #8899aa; font-size: 13px; cursor: pointer; transition: all 0.15s; border-left: 3px solid transparent; }
+  .nav-item:hover { background: var(--sidebar-hover); color: #cdd9e5; }
+  .nav-item.active { background: var(--sidebar-hover); color: var(--accent); border-left-color: var(--accent); }
+  .nav-item .icon { width: 16px; text-align: center; font-size: 14px; }
+  .sidebar-bottom { padding: 12px 16px; border-top: 1px solid #1e2d45; }
+  .btn-logout { width: 100%; background: #1a2540; color: #8899aa; border: none; padding: 8px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+  .btn-logout:hover { background: #ef444420; color: var(--danger); }
+
+  /* MAIN */
+  #main { margin-left: var(--sidebar-w); flex: 1; min-height: 100vh; display: flex; flex-direction: column; }
+  #main.full-width { margin-left: 0; }
+  .page { display: none; padding: 28px 32px; flex: 1; }
+  .page.active { display: block; }
+  .page-header { margin-bottom: 24px; }
+  .page-header h1 { font-size: 22px; font-weight: 700; color: var(--text); }
+  .page-header p { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .page-header .header-row { display: flex; align-items: center; justify-content: space-between; }
+  .status-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+  .badge-green { background: #dcfce7; color: #16a34a; }
+  .badge-blue { background: #dbeafe; color: #1d4ed8; }
+  .badge-yellow { background: #fef9c3; color: #a16207; }
+  .badge-red { background: #fee2e2; color: #dc2626; }
+  .badge-gray { background: #f1f5f9; color: #64748b; }
+
+  /* CARDS */
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin-bottom: 16px; }
+  .card-title { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 14px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  .grid-6 { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
+
+  /* COUNTERS */
+  .counter-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px 20px; }
+  .counter-card .label { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+  .counter-card .value { font-size: 28px; font-weight: 700; color: var(--text); margin: 4px 0; }
+  .counter-card .note { font-size: 11px; color: var(--muted); }
+
+  /* BUTTONS */
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 7px; border: none; cursor: pointer; font-size: 13px; font-weight: 500; transition: all 0.15s; }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .btn-primary { background: var(--accent2); color: white; }
+  .btn-primary:hover:not(:disabled) { background: #005f8e; }
+  .btn-accent { background: var(--accent); color: white; }
+  .btn-accent:hover:not(:disabled) { background: #0096b7; }
+  .btn-success { background: var(--success); color: white; }
+  .btn-success:hover:not(:disabled) { background: #16a34a; }
+  .btn-danger { background: var(--danger); color: white; }
+  .btn-danger:hover:not(:disabled) { background: #dc2626; }
+  .btn-warning { background: var(--warning); color: white; }
+  .btn-warning:hover:not(:disabled) { background: #d97706; }
+  .btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+  .btn-ghost:hover:not(:disabled) { background: var(--bg); color: var(--text); }
+  .btn-sm { padding: 5px 10px; font-size: 12px; }
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+
+  /* FORMS */
+  .form-group { margin-bottom: 14px; }
+  .form-group label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 5px; }
+  .form-control { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 7px; font-size: 13px; background: white; color: var(--text); outline: none; transition: border 0.15s; }
+  .form-control:focus { border-color: var(--accent); }
+  .form-control:disabled { background: var(--bg); }
+  select.form-control { cursor: pointer; }
+
+  /* TABLES */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { background: #f8fafc; color: var(--muted); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); }
+  td { padding: 10px 14px; border-bottom: 1px solid #f1f5f9; color: var(--text); vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #f8fafc; }
+  .chip { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+  .chip-green { background: #dcfce7; color: #16a34a; }
+  .chip-blue { background: #dbeafe; color: #1d4ed8; }
+  .chip-yellow { background: #fef9c3; color: #a16207; }
+  .chip-red { background: #fee2e2; color: #dc2626; }
+  .chip-gray { background: #f1f5f9; color: #64748b; }
+  .chip-purple { background: #f3e8ff; color: #7c3aed; }
+
+  /* UPLOAD */
+  .upload-area { border: 2px dashed var(--border); border-radius: 10px; padding: 32px; text-align: center; cursor: pointer; transition: all 0.15s; }
+  .upload-area:hover, .upload-area.drag-over { border-color: var(--accent); background: #e0f7fa20; }
+  .upload-area .upload-icon { font-size: 32px; margin-bottom: 8px; }
+  .upload-area p { color: var(--muted); font-size: 13px; }
+  .upload-area .file-name { color: var(--accent); font-weight: 600; margin-top: 8px; }
+
+  /* TIMELINE */
+  .timeline { list-style: none; }
+  .timeline li { display: flex; gap: 12px; padding: 10px 0; border-left: 2px solid var(--border); margin-left: 8px; padding-left: 16px; position: relative; }
+  .timeline li::before { content: ''; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); position: absolute; left: -6px; top: 14px; }
+  .timeline li .tl-label { font-size: 12px; font-weight: 600; color: var(--text); }
+  .timeline li .tl-time { font-size: 11px; color: var(--muted); }
+  .timeline li .tl-note { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+  /* STATES */
+  .state-empty { text-align: center; padding: 40px 20px; color: var(--muted); font-size: 13px; }
+  .state-loading { text-align: center; padding: 40px 20px; color: var(--muted); font-size: 13px; }
+  .state-error { background: #fee2e2; color: #dc2626; padding: 10px 14px; border-radius: 7px; font-size: 13px; margin-bottom: 12px; }
+  .state-success { background: #dcfce7; color: #16a34a; padding: 10px 14px; border-radius: 7px; font-size: 13px; margin-bottom: 12px; }
+  .state-info { background: #dbeafe; color: #1d4ed8; padding: 10px 14px; border-radius: 7px; font-size: 13px; margin-bottom: 12px; }
+
+  /* GATEWAY */
+  #page-gateway { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background: linear-gradient(135deg, #0f1623 0%, #1a2540 50%, #0f1623 100%); }
+  .gateway-brand { text-align: center; margin-bottom: 48px; }
+  .gateway-brand h1 { color: var(--accent); font-size: 32px; font-weight: 800; letter-spacing: 1px; }
+  .gateway-brand p { color: #8899aa; font-size: 14px; margin-top: 8px; max-width: 480px; }
+  .gateway-cards { display: grid; grid-template-columns: repeat(3, 280px); gap: 20px; }
+  .gateway-card { background: #1a2540; border: 1px solid #2a3a55; border-radius: 14px; padding: 28px 24px; text-align: center; transition: all 0.2s; }
+  .gateway-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .gateway-card .gc-icon { font-size: 36px; margin-bottom: 12px; }
+  .gateway-card h3 { color: #cdd9e5; font-size: 16px; font-weight: 700; margin-bottom: 8px; }
+  .gateway-card p { color: #6a7f99; font-size: 12px; margin-bottom: 20px; line-height: 1.5; }
+  .gateway-footer { margin-top: 40px; color: #3a5070; font-size: 11px; }
+
+  /* LOGIN */
+  .login-wrap { display: flex; align-items: center; justify-content: center; min-height: 100vh; background: var(--bg); }
+  .login-card { background: white; border: 1px solid var(--border); border-radius: 14px; padding: 36px 32px; width: 380px; }
+  .login-card h2 { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+  .login-card .sub { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+
+  /* PREVIEW */
+  .pdf-preview { width: 100%; height: 400px; border: 1px solid var(--border); border-radius: 8px; background: #f8fafc; }
+
+  /* ACTIVITY FEED */
+  .activity-item { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid #f1f5f9; font-size: 12px; }
+  .activity-item:last-child { border-bottom: none; }
+  .activity-item .act-time { color: var(--muted); white-space: nowrap; min-width: 80px; }
+  .activity-item .act-text { color: var(--text); }
+  .activity-item .act-role { color: var(--accent); font-weight: 600; }
+
+  /* TOGGLE */
+  .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .toggle-row:last-child { border-bottom: none; }
+  .toggle-label { font-size: 13px; font-weight: 500; }
+  .toggle-desc { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .toggle { position: relative; width: 44px; height: 24px; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider { position: absolute; inset: 0; background: #cbd5e1; border-radius: 24px; cursor: pointer; transition: 0.2s; }
+  .toggle-slider::before { content: ''; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px; background: white; border-radius: 50%; transition: 0.2s; }
+  .toggle input:checked + .toggle-slider { background: var(--accent); }
+  .toggle input:checked + .toggle-slider::before { transform: translateX(20px); }
+
+  /* RESPONSIVE */
+  @media (max-width: 900px) {
+    .grid-6 { grid-template-columns: repeat(3, 1fr); }
+    .grid-4 { grid-template-columns: repeat(2, 1fr); }
+    .gateway-cards { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- GATEWAY (no sidebar) -->
+<div id="page-gateway" class="page active">
+  <div class="gateway-brand">
+    <h1>🔐 SecurePrint Ledger</h1>
+    <p>Secure document distribution, forensic print traceability, and leak attribution platform</p>
+  </div>
+  <div class="gateway-cards">
+    <div class="gateway-card">
+      <div class="gc-icon">🌐</div>
+      <h3>Public Integrity Portal</h3>
+      <p>Report suspected document leaks and track your case status anonymously.</p>
+      <button class="btn btn-accent" onclick="navigate('public-portal')">Open Public Portal</button>
+    </div>
+    <div class="gateway-card">
+      <div class="gc-icon">🖨️</div>
+      <h3>Operator Login</h3>
+      <p>Access your assigned print jobs, manage print sessions, and verify dispatch.</p>
+      <button class="btn btn-primary" onclick="navigate('operator-login')">Operator Login</button>
+    </div>
+    <div class="gateway-card">
+      <div class="gc-icon">⚙️</div>
+      <h3>Admin Command Center</h3>
+      <p>Full system control: documents, operators, forensics, leaks, and audit trail.</p>
+      <button class="btn btn-ghost" style="color:#cdd9e5;border-color:#2a3a55" onclick="navigate('admin-login')">Admin Login</button>
+    </div>
+  </div>
+  <div class="gateway-footer">SecurePrint Ledger — Forensic Document Accountability System</div>
+</div>
+
+<!-- APP SHELL (sidebar + pages) -->
+<div id="app-shell" style="display:none; width:100%; display:none;">
+  <nav id="sidebar">
+    <div class="sidebar-logo">
+      <div class="brand">🔐 SecurePrint</div>
+      <div class="sub">LEDGER SYSTEM</div>
+    </div>
+    <div class="sidebar-user">
+      <span class="role-badge" id="sb-role">—</span>
+      <div class="uname" id="sb-user">—</div>
+      <div class="wallet-panel">
+        <button id="btn-connect-wallet" class="btn-connect-wallet" onclick="connectMetaMask()">Connect Wallet</button>
+        <div id="wallet-address" class="wallet-address"></div>
+        <div id="wallet-balance" class="wallet-balance"></div>
+      </div>
+    </div>
+    <div class="sidebar-nav" id="sidebar-nav"></div>
+    <div class="sidebar-bottom">
+      <button class="btn-logout" onclick="doLogout()">⬅ Logout</button>
+    </div>
+  </nav>
+
+  <div id="main">
+    <!-- ADMIN PAGES -->
+    <div id="page-command" class="page"></div>
+    <div id="page-operator-control" class="page"></div>
+    <div id="page-leak-trace" class="page"></div>
+    <div id="page-bounty" class="page"></div>
+    <div id="page-ledger" class="page"></div>
+    <div id="page-print-nodes" class="page"></div>
+    <div id="page-security" class="page"></div>
+    <div id="page-audit" class="page"></div>
+    <!-- OPERATOR PAGES -->
+    <div id="page-active-jobs" class="page"></div>
+  </div>
+</div>
+
+<!-- PUBLIC PORTAL (no sidebar) -->
+<div id="page-public-portal" style="display:none; width:100%;"></div>
+
+<!-- ADMIN LOGIN -->
+<div id="page-admin-login" style="display:none; width:100%;"></div>
+
+<!-- OPERATOR LOGIN/SIGNUP/PENDING -->
+<div id="page-operator-login" style="display:none; width:100%;"></div>
+<div id="page-operator-signup" style="display:none; width:100%;"></div>
+<div id="page-operator-pending" style="display:none; width:100%;"></div>
+
+<script src="/pages/api.js"></script>
+<script src="/pages/gateway.js"></script>
+<script src="/pages/public_portal.js"></script>
+<script src="/pages/admin_login.js"></script>
+<script src="/pages/operator_auth.js"></script>
+<script src="/pages/command_center.js"></script>
+<script src="/pages/operator_control.js"></script>
+<script src="/pages/leak_trace.js"></script>
+<script src="/pages/bounty.js"></script>
+<script src="/pages/ledger.js"></script>
+<script src="/pages/print_nodes.js"></script>
+<script src="/pages/security.js"></script>
+<script src="/pages/audit.js"></script>
+<script src="/pages/active_jobs.js"></script>
+<script src="/pages/app.js"></script>
+</body>
+</html>
