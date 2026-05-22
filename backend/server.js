@@ -31,10 +31,19 @@ const { v4: uuidv4 } = require('uuid');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL;
+const UPLOADS_BASE = isProduction ? '/tmp/uploads' : path.join(__dirname, '..', 'uploads');
+
 // Ensure upload dirs exist
-['uploads/original', 'uploads/generated', 'uploads/leaks', 'uploads/reports'].forEach(dir => {
-  const full = path.join(__dirname, '..', dir);
-  if (!fs.existsSync(full)) fs.mkdirSync(full, { recursive: true });
+['original', 'generated', 'leaks', 'reports'].forEach(dir => {
+  const full = path.join(UPLOADS_BASE, dir);
+  if (!fs.existsSync(full)) {
+    try {
+      fs.mkdirSync(full, { recursive: true });
+    } catch (e) {
+      console.error(`Failed to create directory ${full}:`, e);
+    }
+  }
 });
 
 app.use(express.json());
@@ -48,20 +57,21 @@ app.use(session({
 
 // Serve static files
 app.use(express.static(path.join(__dirname, '..', 'frontend')));
-app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
+app.use('/uploads', express.static(UPLOADS_BASE));
 
 // File upload config
 const originalStorage = multer.diskStorage({
-  destination: path.join(__dirname, '..', 'uploads', 'original'),
+  destination: path.join(UPLOADS_BASE, 'original'),
   filename: (req, file, cb) => cb(null, `${uuidv4()}_${file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`)
 });
 const leakStorage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const dir = path.join(__dirname, '..', 'uploads', 'leaks');
+    const dir = path.join(UPLOADS_BASE, 'leaks');
     cb(null, dir);
   },
   filename: (req, file, cb) => cb(null, `${uuidv4()}_${file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`)
 });
+
 
 const uploadOriginal = multer({ storage: originalStorage, limits: { fileSize: 50 * 1024 * 1024 } });
 const uploadLeak = multer({
