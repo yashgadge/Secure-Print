@@ -7,6 +7,75 @@ const { embedForensicMarkers, generateForensicId } = require('../pdf_forensics')
 const requireRole = require('../middleware/requireRole');
 const router = express.Router();
 
+// Middleware to sync session-stored print jobs to the SQLite database
+router.use((req, res, next) => {
+  if (req.session && req.session.lastJobData) {
+    const jd = req.session.lastJobData;
+    try {
+      // 1. Sync batch
+      if (jd.batch) {
+        const existingBatch = db.prepare('SELECT id FROM dispatch_batches WHERE id = ?').get(jd.batch.id);
+        if (!existingBatch) {
+          db.prepare('INSERT OR REPLACE INTO dispatch_batches (id, batch_ref, job_id, center_id, operator_id, total_copies, status) VALUES (?,?,?,?,?,?,?)')
+            .run(jd.batch.id, jd.batch.batch_ref, jd.batch.job_id, jd.batch.center_id, jd.batch.operator_id, jd.batch.total_copies, jd.batch.status);
+        } else {
+          db.prepare('UPDATE dispatch_batches SET status = ? WHERE id = ?').run(jd.batch.status, jd.batch.id);
+        }
+      }
+
+      // 2. Sync job
+      if (jd.job) {
+        const existingJob = db.prepare('SELECT id FROM print_jobs WHERE id = ?').get(jd.job.id);
+        if (!existingJob) {
+          db.prepare('INSERT OR REPLACE INTO print_jobs (id, job_ref, batch_id, operator_id, center_id, master_file, status, copies_count) VALUES (?,?,?,?,?,?,?,?)')
+            .run(jd.job.id, jd.job.job_ref, jd.job.batch_id, jd.job.operator_id, jd.job.center_id, jd.job.master_file, jd.job.status, jd.job.copies_count);
+        } else {
+          db.prepare('UPDATE print_jobs SET status = ? WHERE id = ?').run(jd.job.status, jd.job.id);
+        }
+      }
+
+      // 3. Sync copies & forensics
+      if (jd.copies) {
+        for (const c of jd.copies) {
+          const existingCopy = db.prepare('SELECT id FROM print_copies WHERE id = ?').get(c.id);
+          if (!existingCopy) {
+            db.prepare('INSERT OR REPLACE INTO print_copies (id, job_id, batch_id, copy_number, file_path, forensic_id, status) VALUES (?,?,?,?,?,?,?)')
+              .run(c.id, c.job_id, c.batch_id, c.copy_number, c.file_path, c.forensic_id, c.status);
+          } else {
+            db.prepare('UPDATE print_copies SET status = ? WHERE id = ?').run(c.status, c.id);
+          }
+        }
+      }
+
+      if (jd.forensics) {
+        for (const f of jd.forensics) {
+          const existingForensic = db.prepare('SELECT id FROM forensic_copies WHERE copy_id = ?').get(f.copy_id);
+          if (!existingForensic) {
+            db.prepare('INSERT OR REPLACE INTO forensic_copies (copy_id, job_id, batch_id, operator_id, center_id, forensic_payload, encoding_method) VALUES (?,?,?,?,?,?,?)')
+              .run(f.copy_id, f.job_id, f.batch_id, f.operator_id, f.center_id, f.forensic_payload, f.encoding_method || '3layer_border_metadata');
+          }
+        }
+      }
+
+      // 4. Sync dispatches
+      if (jd.dispatches) {
+        for (const d of jd.dispatches) {
+          const existingDispatch = db.prepare('SELECT id FROM dispatches WHERE id = ?').get(d.id);
+          if (!existingDispatch) {
+            db.prepare('INSERT OR REPLACE INTO dispatches (id, batch_id, job_id, operator_id, center_id, status) VALUES (?,?,?,?,?,?)')
+              .run(d.id, d.batch_id, d.job_id, d.operator_id, d.center_id, d.status);
+          } else {
+            db.prepare('UPDATE dispatches SET status = ? WHERE id = ?').run(d.status, d.id);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[Sync] Error syncing lastJobData:', err.message);
+    }
+  }
+  next();
+});
+
 const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL;
 const UPLOADS_BASE = isProduction ? '/tmp/uploads' : path.join(process.cwd(), 'uploads');
 const GENERATED_DIR = path.join(UPLOADS_BASE, 'generated');
@@ -143,6 +212,15 @@ router.post('/generate', requireRole('admin', 'superadmin'), async (req, res) =>
     }
   }
 
+  // Store generated job data in session for Vercel stateless environment support
+  req.session.lastJobData = {
+    job: db.prepare('SELECT * FROM print_jobs WHERE id = ?').get(jobId),
+    batch: db.prepare('SELECT * FROM dispatch_batches WHERE id = ?').get(batchId),
+    copies: db.prepare('SELECT * FROM print_copies WHERE job_id = ?').all(jobId),
+    forensics: db.prepare('SELECT * FROM forensic_copies WHERE job_id = ?').all(jobId),
+    dispatches: []
+  };
+
   res.json({ success: true, jobId, jobRef, batchId, batchRef, generatedFiles, previewPdfBase64, ugfTxHash });
 });
 
@@ -177,6 +255,19 @@ router.post('/:id/dispatch', requireRole('admin', 'superadmin'), async (req, res
 
   log('admin', req.session.userId, 'job_dispatched', 'print_job', job.id, `Dispatched job ${job.job_ref}`);
   ledger('job_dispatched', 'admin', job.job_ref, 'dispatches', { jobRef: job.job_ref, dispatchId: result.lastInsertRowid, ugfTxHash });
+
+  // Update session job state
+  if (req.session.lastJobData && req.session.lastJobData.job && req.session.lastJobData.job.id === job.id) {
+    req.session.lastJobData.job.status = 'dispatched';
+    if (req.session.lastJobData.batch) {
+      req.session.lastJobData.batch.status = 'dispatched';
+    }
+    const dispatchRecord = db.prepare('SELECT * FROM dispatches WHERE id = ?').get(result.lastInsertRowid);
+    if (dispatchRecord) {
+      req.session.lastJobData.dispatches.push(dispatchRecord);
+    }
+  }
+
   res.json({ success: true, dispatchId: result.lastInsertRowid, ugfTxHash });
 });
 
@@ -241,6 +332,12 @@ router.post('/:id/action', requireRole('operator', 'admin', 'superadmin'), async
   if (action === 'complete') {
     ledger('job_completed', req.session.role, job.job_ref, 'print_jobs', { jobRef: job.job_ref, completedBy: req.session.userId });
   }
+
+  // Update session job status
+  if (req.session.lastJobData && req.session.lastJobData.job && req.session.lastJobData.job.id === job.id) {
+    req.session.lastJobData.job.status = newStatus;
+  }
+
   res.json({ success: true, newStatus, ugfTxHash });
 });
 
@@ -272,6 +369,19 @@ router.post('/:id/verify-dispatch', requireRole('operator', 'admin', 'superadmin
   db.prepare('UPDATE dispatches SET verified_at = datetime(\'now\'), status = ? WHERE job_id = ?').run('verified', job.id);
   log(req.session.role, req.session.userId, 'dispatch_verified', 'print_job', job.id, `Dispatch verified for job ${job.job_ref}`);
   ledger('dispatch_verified', req.session.role, job.job_ref, 'dispatches', { jobRef: job.job_ref, ugfTxHash });
+
+  // Update session dispatch status
+  if (req.session.lastJobData && req.session.lastJobData.job && req.session.lastJobData.job.id === job.id) {
+    if (req.session.lastJobData.dispatches) {
+      req.session.lastJobData.dispatches.forEach(d => {
+        if (d.job_id === job.id) {
+          d.status = 'verified';
+          d.verified_at = new Date().toISOString();
+        }
+      });
+    }
+  }
+
   res.json({ success: true, ugfTxHash });
 });
 
