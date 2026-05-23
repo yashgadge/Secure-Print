@@ -191,7 +191,8 @@ router.post('/:id/scan', async (req, res) => {
       operatorName: operator?.full_name  || payload.operatorName,
       centerName:  center?.name          || payload.centerName
     },
-    ugfTxHash
+    ugfTxHash,
+    ugfMode: typeof ugfResult !== 'undefined' ? ugfResult.mode : 'simulated'
   });
 });
 

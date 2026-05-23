@@ -368,8 +368,13 @@ window.showUGFModal = async function(actionName, executeFn) {
       document.getElementById('ugf-res-status').style.color = '#22c55e';
       document.getElementById('ugf-res-amount').textContent = `${amount} TYI_MOCK_USD`;
       
-      const explorerUrl = `https://sepolia.basescan.org/tx/${txHash}`;
-      document.getElementById('ugf-res-hash').innerHTML = `<a href="${explorerUrl}" target="_blank" title="${txHash}">${txHash.substring(0, 18)}... 🔗</a>`;
+      const isSimulated = result.ugfMode === 'simulated' || result.mode === 'simulated' || !result.ugfMode;
+      if (isSimulated) {
+        document.getElementById('ugf-res-hash').innerHTML = `<span style="color:#f59e0b;" title="${txHash}">${txHash.substring(0, 18)}... 🧪 (Simulated Sandbox)</span>`;
+      } else {
+        const explorerUrl = `https://sepolia.basescan.org/tx/${txHash}`;
+        document.getElementById('ugf-res-hash').innerHTML = `<a href="${explorerUrl}" target="_blank" title="${txHash}">${txHash.substring(0, 18)}... 🔗 (Base Sepolia)</a>`;
+      }
     }
     
     document.getElementById('ugf-result-box').style.display = 'block';

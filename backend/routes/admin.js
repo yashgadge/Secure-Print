@@ -49,7 +49,7 @@ router.post('/bounty/:id/action', requireRole('admin', 'superadmin'), async (req
   }
 
   log('admin', req.session.userId, `bounty_${action}`, 'bounty_case', bc.id, `Bounty case ${bc.id} ${action}`);
-  res.json({ success: true, ugfTxHash });
+  res.json({ success: true, ugfTxHash, ugfMode: typeof ugfResult !== 'undefined' ? ugfResult.mode : 'simulated' });
 });
 
 // ---- LEDGER ----
