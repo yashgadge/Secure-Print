@@ -84,7 +84,7 @@ async function bountySelectCase(id, caseRef, eligibility, status, rewardAmount, 
       <div><span style="color:#64748b">Case Reference</span><br><code>${caseRef}</code></div>
       <div><span style="color:#64748b">Eligibility</span><br>${statusChip(eligibility)}</div>
       <div><span style="color:#64748b">Current Status</span><br>${statusChip(status)}</div>
-      ${leakCaseId && eligibility === 'pending' ? `<button class="btn btn-primary btn-sm" style="margin-top:8px;width:100%;justify-content:center;" id="bounty-scan-btn" onclick="bountyScanCase(${leakCaseId})">🔬 Initiate Deep Trace Scan</button>` : ''}
+      ${leakCaseId && ['queued', 'escalated'].includes(status) ? `<button class="btn btn-primary btn-sm" style="margin-top:8px;width:100%;justify-content:center;" id="bounty-scan-btn" onclick="bountyScanCase(${leakCaseId})">🔬 Initiate Deep Trace Scan</button>` : ''}
     </div>
     ${previewHtml}`;
 
@@ -115,7 +115,7 @@ function bountyUpdateActions() {
   const actionMsg = document.getElementById('bounty-action-msg');
   if (!btns || !actionMsg) return;
 
-  const canAct = ['queued', 'escalated'].includes(status) && eligibility === 'eligible';
+  const canAct = ['queued', 'escalated'].includes(status);
   
   if (canAct) {
     if (!window.walletAddress) {
