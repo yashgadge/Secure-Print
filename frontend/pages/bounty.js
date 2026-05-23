@@ -58,15 +58,25 @@ async function bountyLoadQueue() {
         <td>${statusChip(r.eligibility)}</td>
         <td>${statusChip(r.status)}</td>
         <td>${fmtDate(r.case_date)}</td>
-        <td><button class="btn btn-ghost btn-sm" onclick="bountySelectCase(${r.id}, '${r.case_ref}', '${r.eligibility}', '${r.status}', ${r.reward_amount || 0})">Review</button></td>`
+        <td><button class="btn btn-ghost btn-sm" onclick="bountySelectCase(${r.id}, '${r.case_ref}', '${r.eligibility}', '${r.status}', ${r.reward_amount || 0}, '${r.file_path || ''}', ${r.leak_case_id || 0})">Review</button></td>`
     );
-    if (!rows.length) empty(el, 'No bounty cases yet. Cases appear after leak attribution.');
+    if (!rows.length) empty(el, 'No bounty cases yet.');
   } catch { document.getElementById('bounty-table').innerHTML = '<div class="state-error">Failed to load</div>'; }
 }
 
-async function bountySelectCase(id, caseRef, eligibility, status, rewardAmount) {
+async function bountySelectCase(id, caseRef, eligibility, status, rewardAmount, filePath, leakCaseId) {
   document.getElementById('bounty-detail-area').style.display = 'grid';
   document.getElementById('bounty-reward-amount').value = rewardAmount || 500;
+
+  const isPdf = filePath?.toLowerCase().endsWith('.pdf');
+  let previewHtml = '';
+  if (filePath) {
+    if (isPdf) {
+      previewHtml = `<div style="margin-top:16px;"><span style="color:#64748b;font-size:12px;font-weight:600;">Suspected Leaked File Preview:</span><iframe src="/uploads/${filePath}" style="width:100%;height:280px;border:1px solid #e2e8f0;border-radius:6px;margin-top:4px;"></iframe></div>`;
+    } else {
+      previewHtml = `<div style="margin-top:16px;"><span style="color:#64748b;font-size:12px;font-weight:600;">Suspected Leaked File Preview:</span><div style="text-align:center;margin-top:4px;border:1px solid #e2e8f0;border-radius:6px;padding:8px;background:#f8fafc;"><img src="/uploads/${filePath}" style="max-width:100%;max-height:280px;border-radius:4px;object-fit:contain;" /></div></div>`;
+    }
+  }
 
   document.getElementById('bounty-case-detail').innerHTML = `
     <div style="font-size:13px;display:grid;gap:8px;">
@@ -74,7 +84,9 @@ async function bountySelectCase(id, caseRef, eligibility, status, rewardAmount) 
       <div><span style="color:#64748b">Case Reference</span><br><code>${caseRef}</code></div>
       <div><span style="color:#64748b">Eligibility</span><br>${statusChip(eligibility)}</div>
       <div><span style="color:#64748b">Current Status</span><br>${statusChip(status)}</div>
-    </div>`;
+      ${leakCaseId && eligibility === 'pending' ? `<button class="btn btn-primary btn-sm" style="margin-top:8px;width:100%;justify-content:center;" id="bounty-scan-btn" onclick="bountyScanCase(${leakCaseId})">🔬 Initiate Deep Trace Scan</button>` : ''}
+    </div>
+    ${previewHtml}`;
 
   // Load UGF transactions
   try {
@@ -92,7 +104,7 @@ async function bountySelectCase(id, caseRef, eligibility, status, rewardAmount) 
       : '<div style="color:#64748b;font-size:13px;">No transaction yet</div>';
   } catch {}
 
-  selectedBountyCase = { id, caseRef, eligibility, status, rewardAmount };
+  selectedBountyCase = { id, caseRef, eligibility, status, rewardAmount, filePath, leakCaseId };
   bountyUpdateActions();
 }
 
@@ -156,12 +168,38 @@ async function bountyAction(id, action) {
     const rows = await API.get('/api/admin/bounty');
     const updated = rows.find(r => r.id === id);
     if (updated) {
-      bountySelectCase(updated.id, updated.case_ref, updated.eligibility, updated.status, updated.reward_amount);
+      bountySelectCase(updated.id, updated.case_ref, updated.eligibility, updated.status, updated.reward_amount, updated.file_path, updated.leak_case_id);
     } else {
       selectedBountyCase = null;
       document.getElementById('bounty-detail-area').style.display = 'none';
     }
   } catch (err) {
     setMsg(msg, `❌ ${err.message}`, 'error');
+  }
+}
+
+async function bountyScanCase(leakCaseId) {
+  const btn = document.getElementById('bounty-scan-btn');
+  if (!btn) return;
+  btn.disabled = true;
+  btn.textContent = '🔬 Scanning...';
+  try {
+    const result = await API.post(`/api/leaks/${leakCaseId}/scan`, {});
+    if (result.found) {
+      alert(`✅ Attribution confirmed: Attributed with ${(result.confidence * 100).toFixed(0)}% confidence to Job ${result.attribution.jobRef}, Copy #${result.attribution.copyNumber}.`);
+    } else {
+      alert(`⚠️ Scan completed: No matching forensic markers found (${result.reason || 'No markers detected'}).`);
+    }
+    await bountyLoadQueue();
+    const rows = await API.get('/api/admin/bounty');
+    const updated = rows.find(r => r.leak_case_id === leakCaseId);
+    if (updated) {
+      bountySelectCase(updated.id, updated.case_ref, updated.eligibility, updated.status, updated.reward_amount, updated.file_path, updated.leak_case_id);
+    }
+  } catch (err) {
+    alert(`❌ Scan error: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🔬 Run Forensic Trace Scan';
   }
 }

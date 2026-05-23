@@ -26,6 +26,9 @@ router.post('/submit', (req, res) => {
 
   const caseId = result.lastInsertRowid;
 
+  // Create bounty case
+  db.prepare('INSERT INTO bounty_cases (case_id, eligibility, status) VALUES (?,?,?)').run(caseId, 'pending', 'queued');
+
   // Create chain of custody event
   db.prepare('INSERT INTO chain_of_custody_events (case_id, event_type, description, actor_role) VALUES (?,?,?,?)')
     .run(caseId, 'case_submitted', `Leak case submitted: ${caseRef}`, 'public');
@@ -63,6 +66,7 @@ router.post('/:id/scan', async (req, res) => {
 
   if (!recovery.found || !recovery.payload) {
     db.prepare('UPDATE leak_cases SET status = ? WHERE id = ?').run('no_match', lc.id);
+    db.prepare("UPDATE bounty_cases SET eligibility = 'ineligible' WHERE case_id = ?").run(lc.id);
     db.prepare('INSERT INTO chain_of_custody_events (case_id, event_type, description, actor_role, actor_id) VALUES (?,?,?,?,?)')
       .run(lc.id, 'scan_no_match', 'Forensic scan completed: no markers found', actorRole, actorId);
     return res.json({ found: false, reason: recovery.reason });
@@ -156,10 +160,12 @@ router.post('/:id/scan', async (req, res) => {
   // Store evidence
   db.prepare('INSERT INTO leak_evidences (case_id, evidence_type, evidence_data) VALUES (?,?,?)').run(lc.id, 'forensic_payload', JSON.stringify(payload));
 
-  // Create bounty case
+  // Create or update bounty case
   const existingBounty = db.prepare('SELECT id FROM bounty_cases WHERE case_id = ?').get(lc.id);
   if (!existingBounty) {
     db.prepare('INSERT INTO bounty_cases (case_id, eligibility, status) VALUES (?,?,?)').run(lc.id, 'eligible', 'queued');
+  } else {
+    db.prepare("UPDATE bounty_cases SET eligibility = 'eligible' WHERE case_id = ?").run(lc.id);
   }
 
   log(actorRole, actorId, 'leak_scanned', 'leak_case', lc.id, `Case ${lc.case_ref} attributed with confidence ${confidence}`);

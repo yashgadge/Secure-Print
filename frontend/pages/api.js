@@ -355,15 +355,22 @@ window.showUGFModal = async function(actionName, executeFn) {
     }
     
     // Extract hash and amount from response
-    const txHash = result.ugfTxHash || result.txHash || '0x' + Array(64).fill(0).map(() => Math.floor(Math.random()*16).toString(16)).join('');
-    const amount = result.amount || 0.05;
-    
-    document.getElementById('ugf-res-status').textContent = 'Settled On-chain';
-    document.getElementById('ugf-res-status').style.color = '#22c55e';
-    document.getElementById('ugf-res-amount').textContent = `${amount} TYI_MOCK_USD`;
-    
-    const explorerUrl = `https://sepolia.basescan.org/tx/${txHash}`;
-    document.getElementById('ugf-res-hash').innerHTML = `<a href="${explorerUrl}" target="_blank" title="${txHash}">${txHash.substring(0, 18)}... 🔗</a>`;
+    if (result.found === false) {
+      document.getElementById('ugf-res-status').textContent = 'No Markers Detected';
+      document.getElementById('ugf-res-status').style.color = '#ef4444';
+      document.getElementById('ugf-res-amount').textContent = '0.00 TYI_MOCK_USD';
+      document.getElementById('ugf-res-hash').textContent = 'No transaction required';
+    } else {
+      const txHash = result.ugfTxHash || result.txHash || '0x' + Array(64).fill(0).map(() => Math.floor(Math.random()*16).toString(16)).join('');
+      const amount = result.amount || 0.05;
+      
+      document.getElementById('ugf-res-status').textContent = 'Settled On-chain';
+      document.getElementById('ugf-res-status').style.color = '#22c55e';
+      document.getElementById('ugf-res-amount').textContent = `${amount} TYI_MOCK_USD`;
+      
+      const explorerUrl = `https://sepolia.basescan.org/tx/${txHash}`;
+      document.getElementById('ugf-res-hash').innerHTML = `<a href="${explorerUrl}" target="_blank" title="${txHash}">${txHash.substring(0, 18)}... 🔗</a>`;
+    }
     
     document.getElementById('ugf-result-box').style.display = 'block';
     

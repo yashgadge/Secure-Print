@@ -7,7 +7,7 @@ const router = express.Router();
 // ---- BOUNTY ----
 router.get('/bounty', requireRole('admin', 'superadmin'), (req, res) => {
   const rows = db.prepare(`
-    SELECT bc.*, lc.case_ref, lc.reporter_name, lc.confidence_score, lc.created_at as case_date
+    SELECT bc.*, lc.id as leak_case_id, lc.case_ref, lc.reporter_name, lc.confidence_score, lc.file_path, lc.created_at as case_date
     FROM bounty_cases bc
     LEFT JOIN leak_cases lc ON bc.case_id = lc.id
     ORDER BY bc.created_at DESC

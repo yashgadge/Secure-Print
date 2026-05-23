@@ -513,11 +513,20 @@ async function recoverFromImage(filePath, db) {
       if (typeof enhanced.contrast  === 'function') enhanced.contrast(0.4);
 
       const buf = await jimpBuf(enhanced);
-      const { data: { text } } = await Tesseract.recognize(buf, 'eng', {
+      
+      const ocrPromise = Tesseract.recognize(buf, 'eng', {
         logger: () => {},
+        langPath: path.join(__dirname, '..'),
+        gzip: false,
         tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789|: .\n',
       });
-      return text || '';
+      
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Tesseract OCR Timeout')), 3500)
+      );
+
+      const ocrResult = await Promise.race([ocrPromise, timeoutPromise]);
+      return ocrResult.data.text || '';
     } catch (e) {
       console.log('[forensics] OCR error:', e.message);
       return '';
@@ -606,22 +615,11 @@ async function recoverFromImage(filePath, db) {
     return null;
   }
 
-  // Run OCR on full image + all 4 border strips in parallel (use perspective-corrected image)
-  const [fullText, topText, bottomText, leftText, rightText] = await Promise.all([
-    ocrImage(workImg),
-    ocrStrip(workImg, 'top'),
-    ocrStrip(workImg, 'bottom'),
-    ocrStrip(workImg, 'left'),
-    ocrStrip(workImg, 'right'),
-  ]);
-
-  const allTexts = [fullText, topText, bottomText, leftText, rightText];
-  console.log('[forensics] OCR texts:', allTexts.map(t => t.substring(0, 80)));
-
-  // Parse all sides and apply majority vote
-  const parsedResults = allTexts.map(parseOcrText);
-  const ocrResult = majorityVote(parsedResults);
-  if (ocrResult) console.log('[forensics] majority vote result:', ocrResult);
+  // Run OCR on full image ONLY (no parallel strips to prevent OOM/hang)
+  console.log('[forensics] running OCR on full page image...');
+  const fullText = await ocrImage(workImg);
+  const ocrResult = parseOcrText(fullText);
+  if (ocrResult) console.log('[forensics] OCR parsed result:', ocrResult);
 
   if (ocrResult && db) {
     console.log('[forensics] OCR parsed:', ocrResult);
@@ -830,6 +828,13 @@ async function recoverFromImage(filePath, db) {
       let best = 0;
       for (const observed of sideList) {
         if (observed.length < 4) continue;
+
+        // Low entropy check: if > 70% of symbols are the same, it's just a blank margin/line
+        const counts = [0, 0, 0, 0];
+        for (const s of observed) counts[s]++;
+        const maxCount = Math.max(...counts);
+        if ((maxCount / observed.length) > 0.70) continue;
+
         const sc = seqSim(observed, expectedSyms);
         if (sc > best) best = sc;
       }
@@ -963,6 +968,28 @@ async function recoverForensicMarkers(filePath, db) {
 
   // Step 7 — scanned PDF: extract embedded images and run OCR on them
   // This handles PDFs that are just scanned images with no text layer
+  const rawString = pdfBytes.toString('latin1');
+  let hasFonts = false;
+  try {
+    const { PDFDict, PDFName } = require('pdf-lib');
+    for (const obj of pdfDoc.context.indirectObjects.values()) {
+      if (obj instanceof PDFDict) {
+        const type = obj.get(PDFName.of('Type'));
+        if (type === PDFName.of('Font')) {
+          hasFonts = true;
+          break;
+        }
+      }
+    }
+  } catch (err) {
+    console.log('[forensics] PDF-lib font parsing error:', err.message);
+  }
+
+  if (hasFonts || rawString.includes('/Font')) {
+    console.log('[forensics] PDF has font objects (digital PDF), skipping scanned-PDF image extraction');
+    return { found: false, payload: null, forensicId: null, reason: 'No forensic markers found in digital PDF', recoveryLayer: null, confidence: 0 };
+  }
+
   console.log('[forensics] no text markers found, trying scanned-PDF image extraction');
   try {
     const Jimp = require('jimp').Jimp;
@@ -970,33 +997,36 @@ async function recoverForensicMarkers(filePath, db) {
     const rawBuf = pdfBytes;
     const imageBuffers = [];
 
-    // Find JPEG streams (FF D8 ... FF D9)
+    // Find JPEG/PNG streams via fast indexOf search
     let pos = 0;
     while (pos < rawBuf.length - 2) {
-      if (rawBuf[pos] === 0xFF && rawBuf[pos + 1] === 0xD8) {
-        const end = rawBuf.indexOf(Buffer.from([0xFF, 0xD9]), pos + 2);
-        if (end !== -1 && end - pos > 500) {
-          imageBuffers.push(rawBuf.slice(pos, end + 2));
+      const nextJpeg = rawBuf.indexOf(Buffer.from([0xFF, 0xD8]), pos);
+      const nextPng = rawBuf.indexOf(Buffer.from([0x89, 0x50, 0x4E, 0x47]), pos);
+
+      if (nextJpeg === -1 && nextPng === -1) break;
+
+      if (nextPng === -1 || (nextJpeg !== -1 && nextJpeg < nextPng)) {
+        const end = rawBuf.indexOf(Buffer.from([0xFF, 0xD9]), nextJpeg + 2);
+        if (end !== -1 && end - nextJpeg > 500) {
+          imageBuffers.push(rawBuf.slice(nextJpeg, end + 2));
           pos = end + 2;
-          continue;
+        } else {
+          pos = nextJpeg + 2;
         }
-      }
-      // Find PNG streams (89 50 4E 47)
-      if (rawBuf[pos] === 0x89 && rawBuf[pos+1] === 0x50 && rawBuf[pos+2] === 0x4E && rawBuf[pos+3] === 0x47) {
-        // PNG ends with IEND chunk: 00 00 00 00 49 45 4E 44 AE 42 60 82
-        const iend = rawBuf.indexOf(Buffer.from([0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82]), pos);
-        if (iend !== -1 && iend - pos > 500) {
-          imageBuffers.push(rawBuf.slice(pos, iend + 8));
+      } else {
+        const iend = rawBuf.indexOf(Buffer.from([0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82]), nextPng);
+        if (iend !== -1 && iend - nextPng > 500) {
+          imageBuffers.push(rawBuf.slice(nextPng, iend + 8));
           pos = iend + 8;
-          continue;
+        } else {
+          pos = nextPng + 4;
         }
       }
-      pos++;
     }
 
     console.log(`[forensics] found ${imageBuffers.length} embedded images in PDF`);
 
-    for (let ii = 0; ii < Math.min(imageBuffers.length, 6); ii++) {
+    for (let ii = 0; ii < Math.min(imageBuffers.length, 2); ii++) {
       try {
         const tmpPath = filePath + `_extracted_img_${ii}.jpg`;
         fs.writeFileSync(tmpPath, imageBuffers[ii]);

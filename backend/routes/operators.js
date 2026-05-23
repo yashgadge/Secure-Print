@@ -4,6 +4,30 @@ const requireRole = require('../middleware/requireRole');
 const bcrypt = require('bcryptjs');
 const router = express.Router();
 
+// Middleware to sync session-approved operators to SQLite database
+router.use((req, res, next) => {
+  if (req.session && req.session.approvedOperators) {
+    for (const opId of req.session.approvedOperators) {
+      try {
+        let request = db.prepare('SELECT * FROM operator_requests WHERE id = ?').get(opId);
+        if (!request) {
+          request = db.prepare('SELECT * FROM operator_requests WHERE operator_id = ?').get(opId);
+        }
+        if (request && request.status === 'pending') {
+          db.prepare("UPDATE operator_requests SET status = 'approved', reviewed_by = ?, reviewed_at = datetime('now') WHERE id = ?")
+            .run(req.session.userId || 1, request.id);
+          db.prepare(
+            'INSERT OR IGNORE INTO operator_users (operator_id, full_name, email, phone, center_id, device_id, password_hash, status) VALUES (?,?,?,?,?,?,?,?)'
+          ).run(request.operator_id, request.full_name, request.email, request.phone, request.center_id, request.device_id, request.password_hash, 'approved');
+        }
+      } catch (err) {
+        console.error('[Sync] Error syncing approved operator:', err);
+      }
+    }
+  }
+  next();
+});
+
 // Get all operator requests
 router.get('/requests', requireRole('admin', 'superadmin'), (req, res) => {
   const rows = db.prepare(`
@@ -47,6 +71,12 @@ router.post('/requests/:id/approve', requireRole('admin', 'superadmin'), (req, r
   const result = db.prepare(
     'INSERT OR IGNORE INTO operator_users (operator_id, full_name, email, phone, center_id, device_id, password_hash, status) VALUES (?,?,?,?,?,?,?,?)'
   ).run(request.operator_id, request.full_name, request.email, request.phone, request.center_id, request.device_id, request.password_hash, 'approved');
+
+  // Persist approval to session for Vercel stateless environment support
+  req.session.approvedOperators = req.session.approvedOperators || [];
+  if (!req.session.approvedOperators.includes(req.params.id)) {
+    req.session.approvedOperators.push(req.params.id);
+  }
 
   log('admin', req.session.userId, 'operator_approved', 'operator_request', request.id, `Approved operator: ${request.operator_id}`);
   audit('operator_approved', 'admin', req.session.userId, `Operator ${request.operator_id} approved`);
