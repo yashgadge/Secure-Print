@@ -39,6 +39,9 @@ router.post('/operator/signup', (req, res) => {
   const existing = db.prepare('SELECT id FROM operator_requests WHERE operator_id = ?').get(operator_id);
   if (existing) return res.status(409).json({ error: 'Operator ID already submitted' });
 
+  const existingUser = db.prepare('SELECT id FROM operator_users WHERE operator_id = ?').get(operator_id);
+  if (existingUser) return res.status(409).json({ error: 'Operator ID already registered' });
+
   const hash = bcrypt.hashSync(password, 10);
   const result = db.prepare(
     'INSERT INTO operator_requests (operator_id, full_name, email, phone, center_id, device_id, password_hash) VALUES (?,?,?,?,?,?,?)'

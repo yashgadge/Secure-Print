@@ -48,15 +48,15 @@ async function renderOperatorControl() {
 async function ocLoadPending() {
   try {
     const rows = await API.get('/api/operators/requests');
-    const pending = rows.filter(r => r.status === 'pending');
+    const pending = rows.filter(r => r.status?.toLowerCase() === 'pending');
     const el = document.getElementById('oc-pending');
     el.innerHTML = renderTable(
       ['Operator ID', 'Name', 'Center', 'Submitted', 'Actions'],
       pending,
       r => `<td><code>${r.operator_id}</code></td><td>${r.full_name}</td><td>${r.center_name || '—'}</td><td>${fmtDate(r.created_at)}</td>
         <td>
-          <button class="btn btn-success btn-sm" onclick="ocApprove(${r.id})">✅ Approve</button>
-          <button class="btn btn-danger btn-sm" onclick="ocReject(${r.id})">❌ Reject</button>
+          <button class="btn btn-success btn-sm" onclick="ocApprove('${r.id || r.operator_id}')">✅ Approve</button>
+          <button class="btn btn-danger btn-sm" onclick="ocReject('${r.id || r.operator_id}')">❌ Reject</button>
         </td>`
     );
     if (!pending.length) empty(el, 'No pending requests.');
@@ -71,7 +71,7 @@ async function ocLoadApproved() {
       ['Operator ID', 'Name', 'Center', 'Device', 'Status', 'Actions'],
       ops,
       o => `<td><code>${o.operator_id}</code></td><td>${o.full_name}</td><td>${o.center_name || '—'}</td><td>${o.device_id || '—'}</td><td>${statusChip(o.status)}</td>
-        <td>${o.status !== 'suspended' ? `<button class="btn btn-warning btn-sm" onclick="ocSuspend(${o.id})">⏸ Suspend</button>` : '<span class="chip chip-red">Suspended</span>'}</td>`
+        <td>${o.status !== 'suspended' ? `<button class="btn btn-warning btn-sm" onclick="ocSuspend('${o.id || o.operator_id}')">⏸ Suspend</button>` : '<span class="chip chip-red">Suspended</span>'}</td>`
     );
     if (!ops.length) empty(el, 'No approved operators yet.');
   } catch { document.getElementById('oc-approved').innerHTML = '<div class="state-error">Failed to load</div>'; }
@@ -117,7 +117,7 @@ async function ocLoadReassignDropdowns() {
     const [ops, centers] = await Promise.all([API.get('/api/operators'), API.get('/api/centers')]);
     const opSel = document.getElementById('oc-reassign-op');
     const cSel = document.getElementById('oc-reassign-center');
-    if (opSel) opSel.innerHTML = '<option value="">Select operator...</option>' + ops.map(o => `<option value="${o.id}">${o.full_name} (${o.operator_id})</option>`).join('');
+    if (opSel) opSel.innerHTML = '<option value="">Select operator...</option>' + ops.map(o => `<option value="${o.id || o.operator_id}">${o.full_name} (${o.operator_id})</option>`).join('');
     if (cSel) cSel.innerHTML = '<option value="">Select center...</option>' + centers.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
   } catch {}
 }

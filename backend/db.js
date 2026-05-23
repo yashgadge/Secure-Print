@@ -348,6 +348,42 @@ if (!existingAdmin) {
   db.prepare('INSERT INTO admin_users (username, password_hash, role) VALUES (?, ?, ?)').run('admin', hash, 'superadmin');
 }
 
+// Seed default OP-TEST operator if not exists or ensure correct password hash
+const opTestHash = bcrypt.hashSync('password123', 10);
+const existingOpRequest = db.prepare('SELECT id FROM operator_requests WHERE operator_id = ?').get('OP-TEST');
+if (!existingOpRequest) {
+  db.prepare(
+    'INSERT INTO operator_requests (operator_id, full_name, email, phone, center_id, device_id, password_hash, status, reviewed_by, reviewed_at) VALUES (?,?,?,?,?,?,?,?,?,datetime(\'now\'))'
+  ).run('OP-TEST', 'Test Operator', 'test@test.com', '1234567890', 1, 'DEV-TEST', opTestHash, 'approved', 1);
+} else {
+  db.prepare('UPDATE operator_requests SET password_hash = ?, status = ? WHERE operator_id = ?').run(opTestHash, 'approved', 'OP-TEST');
+}
+
+const existingOpUser = db.prepare('SELECT id FROM operator_users WHERE operator_id = ?').get('OP-TEST');
+if (!existingOpUser) {
+  db.prepare(
+    'INSERT OR IGNORE INTO operator_users (operator_id, full_name, email, phone, center_id, device_id, password_hash, status) VALUES (?,?,?,?,?,?,?,?)'
+  ).run('OP-TEST', 'Test Operator', 'test@test.com', '1234567890', 1, 'DEV-TEST', opTestHash, 'approved');
+} else {
+  db.prepare('UPDATE operator_users SET password_hash = ?, status = ? WHERE operator_id = ?').run(opTestHash, 'approved', 'OP-TEST');
+}
+
+// Seed a default pending operator request (OP-1234) so judges can demonstrate the approval flow in stateless Vercel environments
+const existingPendingOp = db.prepare('SELECT id FROM operator_requests WHERE operator_id = ?').get('OP-1234');
+if (!existingPendingOp) {
+  const pendingOpHash = bcrypt.hashSync('password123', 10);
+  db.prepare(
+    'INSERT INTO operator_requests (operator_id, full_name, email, phone, center_id, device_id, password_hash, status) VALUES (?,?,?,?,?,?,?,?)'
+  ).run('OP-1234', 'Yash', 'yash@secureprint.com', '+917410153938', 1, 'DEV-YASH', pendingOpHash, 'pending');
+  
+  // Ensure the user doesn't already exist in operator_users as approved (so it is clean for approval flow)
+  db.prepare("DELETE FROM operator_users WHERE operator_id = 'OP-1234'").run();
+} else if (existingPendingOp.status === 'approved') {
+  // If it was already approved in a previous container session, we can keep it, but for demo freshness,
+  // we check if it is approved and allow resetting it if needed.
+}
+
+
 // Seed default settings
 const defaultSettings = {
   screenshot_blocking: 'false',
