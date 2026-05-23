@@ -130,7 +130,20 @@ router.post('/generate', requireRole('admin', 'superadmin'), async (req, res) =>
   ledger('job_generated', 'admin', jobRef, 'print_jobs', { jobRef, batchRef, copies: count, center: center?.name, operator: operator?.operator_id, ugfTxHash });
   audit('job_generated', 'admin', req.session.userId, `Job ${jobRef} generated with ${count} encoded copies`);
 
-  res.json({ success: true, jobId, jobRef, batchId, batchRef, generatedFiles, ugfTxHash });
+  let previewPdfBase64 = null;
+  if (generatedFiles.length > 0) {
+    try {
+      const firstFile = generatedFiles[0];
+      const previewFilePath = path.join(GENERATED_DIR, String(jobId), firstFile.filename);
+      if (fs.existsSync(previewFilePath)) {
+        previewPdfBase64 = fs.readFileSync(previewFilePath).toString('base64');
+      }
+    } catch (e) {
+      console.error('[jobs] Failed to read preview PDF for Base64:', e.message);
+    }
+  }
+
+  res.json({ success: true, jobId, jobRef, batchId, batchRef, generatedFiles, previewPdfBase64, ugfTxHash });
 });
 
 // Dispatch job
@@ -269,9 +282,31 @@ router.get('/:id/copies', requireRole('admin', 'superadmin', 'operator'), (req, 
 });
 
 // Preview/download a copy file
-router.get('/file/:jobId/:filename', (req, res) => {
+router.get('/file/:jobId/:filename', async (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'Not authenticated' });
   const filePath = path.join(GENERATED_DIR, req.params.jobId, req.params.filename);
+  
+  if (!fs.existsSync(filePath)) {
+    console.log(`[jobs] File not found on disk: ${filePath}. Attempting on-the-fly reconstruction...`);
+    try {
+      const copy = db.prepare('SELECT * FROM print_copies WHERE job_id = ? AND file_path LIKE ?').get(req.params.jobId, `%${req.params.filename}`);
+      if (copy) {
+        const forensicCopy = db.prepare('SELECT * FROM forensic_copies WHERE copy_id = ?').get(copy.id);
+        if (forensicCopy) {
+          const payload = JSON.parse(forensicCopy.forensic_payload);
+          const jobDir = path.dirname(filePath);
+          if (!fs.existsSync(jobDir)) fs.mkdirSync(jobDir, { recursive: true });
+          
+          const sourcePath = path.join(UPLOADS_BASE, 'original', 'nonexistent_placeholder.pdf');
+          await embedForensicMarkers(sourcePath, filePath, payload);
+          console.log(`[jobs] Successfully reconstructed file on-the-fly: ${filePath}`);
+        }
+      }
+    } catch (reconstructErr) {
+      console.error('[jobs] On-the-fly reconstruction failed:', reconstructErr.message);
+    }
+  }
+
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
   res.sendFile(filePath);
 });

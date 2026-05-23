@@ -279,7 +279,10 @@ async function ccGenerate() {
       // Use the exact filename returned by the server
       const previewFilename = firstFile.filename;
       ccState.previewFile = { jobId: result.jobId, filename: previewFilename, forensicId: firstFile.forensicId };
-      const previewUrl = `/api/jobs/file/${result.jobId}/${encodeURIComponent(previewFilename)}`;
+      
+      ccState.previewDataUrl = result.previewPdfBase64 ? `data:application/pdf;base64,${result.previewPdfBase64}` : null;
+      const previewUrl = ccState.previewDataUrl || `/api/jobs/file/${result.jobId}/${encodeURIComponent(previewFilename)}`;
+      
       document.getElementById('cc-preview-area').innerHTML =
         `<iframe src="${previewUrl}" style="width:100%;height:100%;border:none;border-radius:6px;"></iframe>`;
       document.getElementById('cc-view-btn').disabled = false;
@@ -326,13 +329,19 @@ async function ccDispatch() {
 
 function ccViewFile() {
   if (!ccState.previewFile) return;
-  window.open(`/api/jobs/file/${ccState.previewFile.jobId}/${ccState.previewFile.filename}`, '_blank');
+  if (ccState.previewDataUrl) {
+    const win = window.open();
+    win.document.write(`<iframe src="${ccState.previewDataUrl}" style="width:100%;height:100%;border:none;margin:0;padding:0;"></iframe>`);
+    win.document.close();
+  } else {
+    window.open(`/api/jobs/file/${ccState.previewFile.jobId}/${ccState.previewFile.filename}`, '_blank');
+  }
 }
 
 function ccDownloadFile() {
   if (!ccState.previewFile) return;
   const a = document.createElement('a');
-  a.href = `/api/jobs/file/${ccState.previewFile.jobId}/${ccState.previewFile.filename}`;
+  a.href = ccState.previewDataUrl || `/api/jobs/file/${ccState.previewFile.jobId}/${ccState.previewFile.filename}`;
   a.download = ccState.previewFile.filename;
   a.click();
 }
