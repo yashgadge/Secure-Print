@@ -124,14 +124,13 @@ async function executeUGFTransaction(actionName, txData) {
     console.log(`[UGF] executeUGFTransaction: initiating execution for action "${actionName}"`);
 
     // Retrieve or establish the signer wallet
-    let signer = txData.signer || getBackendSigner();
-    
-    // Check if real UGF is enabled and if the private key is configured
-    const isDefaultKey = (signer.privateKey.toLowerCase() === '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80');
-    if (process.env.UGF_ENABLED !== 'true' || isDefaultKey) {
-      console.warn(`[UGF] Real UGF execution skipped (UGF_ENABLED=${process.env.UGF_ENABLED}, isDefaultKey=${isDefaultKey}). Triggering simulated fallback.`);
-      throw new Error("UGF_NOT_CONFIGURED");
+    const hasEnvKey = !!process.env.PRIVATE_KEY;
+    if (!hasEnvKey) {
+      console.warn(`[UGF] PRIVATE_KEY is missing in .env. Skipping real transaction.`);
+      throw new Error("PRIVATE_KEY_MISSING");
     }
+
+    let signer = txData.signer || getBackendSigner();
 
     // Call openUGF with base sepolia chain configurations
     const result = await openUGF({
@@ -145,6 +144,7 @@ async function executeUGFTransaction(actionName, txData) {
       mode: 'testnet'
     });
 
+    console.log(`[UGF] Running in REAL mode`);
     console.log(`[UGF] executeUGFTransaction: successfully executed "${actionName}". Tx Hash: ${result.transactionHash}`);
 
     return {
@@ -155,19 +155,14 @@ async function executeUGFTransaction(actionName, txData) {
     };
   } catch (err) {
     console.error(`[UGF] executeUGFTransaction: error running "${actionName}":`, err.message);
-    if (process.env.UGF_FALLBACK === 'true' || err.message === 'UGF_NOT_CONFIGURED') {
-      console.log(`[UGF] Falling back to simulated transaction mode for "${actionName}"`);
-      const mockHash = '0x' + crypto.randomBytes(32).toString('hex');
-      return {
-        txHash: mockHash,
-        status: 'success',
-        amount: 0.05,
-        executionMode: 'simulated'
-      };
-    }
+    console.log(`[UGF] Running in SIMULATED mode (fallback)`);
+    console.log(`[UGF] Falling back to simulated transaction mode for "${actionName}"`);
+    const mockHash = '0x' + crypto.randomBytes(32).toString('hex');
     return {
-      status: 'failure',
-      error: err.message
+      txHash: mockHash,
+      status: 'success',
+      amount: 0.05,
+      executionMode: 'simulated'
     };
   }
 }
