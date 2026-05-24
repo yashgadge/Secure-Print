@@ -126,7 +126,7 @@ async function executeUGFTransaction(actionName, txData) {
     // Retrieve or establish the signer wallet
     const hasEnvKey = !!process.env.PRIVATE_KEY;
     if (!hasEnvKey) {
-      console.warn(`[UGF] PRIVATE_KEY is missing in .env. Skipping real transaction.`);
+      console.warn(`[UGF] PRIVATE_KEY is missing in .env.`);
       throw new Error("PRIVATE_KEY_MISSING");
     }
 
@@ -155,14 +155,9 @@ async function executeUGFTransaction(actionName, txData) {
     };
   } catch (err) {
     console.error(`[UGF] executeUGFTransaction: error running "${actionName}":`, err.message);
-    console.log(`[UGF] Running in SIMULATED mode (fallback)`);
-    console.log(`[UGF] Falling back to simulated transaction mode for "${actionName}"`);
-    const mockHash = '0x' + crypto.randomBytes(32).toString('hex');
     return {
-      txHash: mockHash,
-      status: 'success',
-      amount: 0.05,
-      executionMode: 'simulated'
+      status: 'failure',
+      error: err.message
     };
   }
 }
