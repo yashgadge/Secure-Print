@@ -150,5 +150,4 @@ node brain/1c7e37a7-5374-49d2-87bf-43dc4d1bba71/scratch/test_docx_e2e.js
 
 ---
 
-## 📝 License
-This project is licensed under the MIT License.
+
